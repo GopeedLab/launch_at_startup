@@ -12,7 +12,7 @@ dependencies:
     sdk: flutter
   launch_at_startup:
     path: ../
-  package_info_plus: ^8.0.0
+  package_info_plus: ^10.2.1
   preference_list: ^0.0.2
 
 dev_dependencies:

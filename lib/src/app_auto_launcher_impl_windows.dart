@@ -7,7 +7,8 @@ import 'package:win32_registry/win32_registry.dart'
 
 bool isRunningInMsix(String packageName) {
   final String resolvedExecutable = Platform.resolvedExecutable;
-  final bool isMsix = resolvedExecutable.contains('WindowsApps') &&
+  final bool isMsix =
+      resolvedExecutable.contains('WindowsApps') &&
       resolvedExecutable.contains(packageName);
   return isMsix;
 }
@@ -23,58 +24,69 @@ class AppAutoLauncherImplWindows extends AppAutoLauncher {
 
   late String _registryValue;
 
-  RegistryKey get _regKey => Registry.openPath(
-        RegistryHive.currentUser,
-        path: r'Software\Microsoft\Windows\CurrentVersion\Run',
-        desiredAccessRights: AccessRights.allAccess,
-      );
+  RegistryKey get _regKey => CURRENT_USER.open(
+    r'Software\Microsoft\Windows\CurrentVersion\Run',
+    config: const RegistryOpenConfig(access: RegistryAccess.all),
+  );
 
-  RegistryKey get _startupApprovedRegKey => Registry.openPath(
-        RegistryHive.currentUser,
-        path:
-            r'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run',
-        desiredAccessRights: AccessRights.allAccess,
-      );
+  RegistryKey get _startupApprovedRegKey => CURRENT_USER.open(
+    r'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run',
+    config: const RegistryOpenConfig(access: RegistryAccess.all),
+  );
 
   static const int _startupApprovedRegKeyBytesLength = 12;
 
   @override
   Future<bool> isEnabled() async {
-    String? value = _regKey.getStringValue(appName);
-
-    return value == _registryValue && await _isStartupApproved();
+    final regKey = _regKey;
+    final startupApprovedRegKey = _startupApprovedRegKey;
+    try {
+      final value = regKey.getString(appName);
+      return value == _registryValue &&
+          _isStartupApproved(startupApprovedRegKey);
+    } finally {
+      regKey.close();
+      startupApprovedRegKey.close();
+    }
   }
 
   @override
   Future<bool> enable() async {
-    _regKey.createValue(
-      RegistryValue.string(
-        appName,
-        _registryValue,
-      ),
-    );
+    final regKey = _regKey;
+    final startupApprovedRegKey = _startupApprovedRegKey;
+    try {
+      regKey.setValue(appName, RegistryValue.string(_registryValue));
 
-    final bytes = Uint8List(_startupApprovedRegKeyBytesLength);
-    // "2" as a first byte in this register means that the autostart is enabled
-    bytes[0] = 2;
-
-    _startupApprovedRegKey.createValue(RegistryValue.binary(appName, bytes));
-
-    return true;
+      final bytes = Uint8List(_startupApprovedRegKeyBytesLength);
+      // "2" as a first byte in this register means that autostart is enabled.
+      bytes[0] = 2;
+      startupApprovedRegKey.setValue(appName, RegistryValue.binary(bytes));
+      return true;
+    } finally {
+      regKey.close();
+      startupApprovedRegKey.close();
+    }
   }
 
   @override
   Future<bool> disable() async {
-    _removeValue(_regKey, appName);
-    _removeValue(_startupApprovedRegKey, appName);
-    return true;
+    final regKey = _regKey;
+    final startupApprovedRegKey = _startupApprovedRegKey;
+    try {
+      _removeValue(regKey, appName);
+      _removeValue(startupApprovedRegKey, appName);
+      return true;
+    } finally {
+      regKey.close();
+      startupApprovedRegKey.close();
+    }
   }
 
   // https://renenyffenegger.ch/notes/Windows/registry/tree/HKEY_CURRENT_USER/Software/Microsoft/Windows/CurrentVersion/Explorer/StartupApproved/Run/index
   // Odd first byte will prevent the app from autostarting
   // Empty or any other value will allow the app to autostart
-  Future<bool> _isStartupApproved() async {
-    final value = _startupApprovedRegKey.getBinaryValue(appName);
+  bool _isStartupApproved(RegistryKey startupApprovedRegKey) {
+    final value = startupApprovedRegKey.getBinary(appName);
 
     if (value == null) {
       return true;
@@ -89,7 +101,7 @@ class AppAutoLauncherImplWindows extends AppAutoLauncher {
 
   void _removeValue(RegistryKey key, String value) {
     if (key.getValue(value) != null) {
-      key.deleteValue(value);
+      key.removeValue(value);
     }
   }
 }
@@ -117,7 +129,8 @@ class AppAutoLauncherImplWindowsMsix extends AppAutoLauncher {
 
   @override
   Future<bool> enable() async {
-    final String script = '''
+    final String script =
+        '''
     \$TargetPath = "$appPath"
     \$ShortcutFile = "\$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\$appName.lnk"
     \$WScriptShell = New-Object -ComObject WScript.Shell
@@ -136,7 +149,8 @@ class AppAutoLauncherImplWindowsMsix extends AppAutoLauncher {
   @override
   Future<bool> disable() async {
     if (_shortcutFile.existsSync()) {
-      final String script = '''
+      final String script =
+          '''
     Remove-Item -Path "\$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\$appName.lnk"
   ''';
       final result = Process.runSync('powershell', ['-Command', script]);

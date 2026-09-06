@@ -1,3 +1,7 @@
+## 0.6.0
+
+- Update Windows registry integration to `win32_registry` 3.x and `win32` 6.x.
+
 ## 0.5.1
 
 - MSIX support args #37
