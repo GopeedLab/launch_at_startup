@@ -19,10 +19,16 @@ class AppAutoLauncherImplWindows extends AppAutoLauncher {
     required String appPath,
     List<String> args = const [],
   }) : super(appPath: appPath, args: args) {
-    _registryValue = args.isEmpty ? appPath : '$appPath ${args.join(' ')}';
+    final argsSuffix = args.isEmpty ? '' : ' ${args.join(' ')}';
+    _registryValue = '"$appPath"$argsSuffix';
+    _unquotedRegistryValue = '$appPath$argsSuffix';
   }
 
   late String _registryValue;
+
+  // Unquoted entries break on paths with spaces and get rewritten, see
+  // https://github.com/GopeedLab/gopeed/issues/1338.
+  late String _unquotedRegistryValue;
 
   RegistryKey get _regKey => CURRENT_USER.open(
     r'Software\Microsoft\Windows\CurrentVersion\Run',
@@ -41,7 +47,11 @@ class AppAutoLauncherImplWindows extends AppAutoLauncher {
     final regKey = _regKey;
     final startupApprovedRegKey = _startupApprovedRegKey;
     try {
-      final value = regKey.getString(appName);
+      var value = regKey.getString(appName);
+      if (value == _unquotedRegistryValue) {
+        regKey.setValue(appName, RegistryValue.string(_registryValue));
+        value = _registryValue;
+      }
       return value == _registryValue &&
           _isStartupApproved(startupApprovedRegKey);
     } finally {
